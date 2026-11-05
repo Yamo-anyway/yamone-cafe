@@ -1,0 +1,76 @@
+name: Android APK
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**/*.md']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.11.1'
+      - name: Install pinned Android SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Generate and retain official Gradle Wrapper
+        run: |
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            gradle wrapper --gradle-version 8.11.1 --distribution-type bin --no-daemon
+            SUM=$(curl --fail --silent --show-error --location https://services.gradle.org/distributions/gradle-8.11.1-bin.zip.sha256)
+            echo "distributionSha256Sum=$SUM" >> gradle/wrapper/gradle-wrapper.properties
+            chmod +x gradlew
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add gradlew gradlew.bat gradle/wrapper
+            git commit -m 'build: add verified Gradle 8.11.1 wrapper'
+            git push origin HEAD:main
+          fi
+      - name: Unit tests, lint and APK build
+        run: ./gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon --stacktrace
+      - name: Prepare encrypted personal build
+        run: |
+          mkdir -p deliverables private-build
+          cp app/build/outputs/apk/debug/app-debug.apk private-build/YamoneCafe-0.4.0-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs private-build/YamoneCafe-0.4.0-debug.apk > private-build/APK-SIGNATURE.txt
+          (cd private-build && sha256sum *.apk > SHA256SUMS.txt)
+          git archive --format=zip --prefix=yamone-cafe/ HEAD > private-build/YamoneCafe-source.zip
+          cp "$HOME/.android/debug.keystore" private-build/debug.keystore
+          tar -C private-build -czf private-build.tar.gz .
+          openssl cms -encrypt -binary -aes-256-cbc -in private-build.tar.gz -outform DER -out deliverables/YamoneCafe-personal-build.p7m ci/build-recipient.pem
+          rm -rf private-build private-build.tar.gz
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: YamoneCafe-encrypted-personal-build
+          path: deliverables/
+          retention-days: 14
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-test-reports
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          retention-days: 7
+      - name: Summary
+        if: success()
+        run: |
+          echo '## Yamone Cafe' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Debug APK compiled and signed; unit tests and lint passed. Physical-device login and screen-off tests remain manual.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'The personal APK, source backup and debug signing backup are encrypted to ci/build-recipient.pem. The PRIVATE decryption key is NOT in this repository.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No Play upload or public GitHub Release was created.' >> "$GITHUB_STEP_SUMMARY"
