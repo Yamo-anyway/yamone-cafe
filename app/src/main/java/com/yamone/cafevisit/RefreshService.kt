@@ -1,7 +1,9 @@
 package com.yamone.cafevisit
 
+import android.Manifest
 import android.app.*
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.net.ConnectivityManager
@@ -202,7 +204,10 @@ class RefreshService : Service() {
             .addAction(Notification.Action.Builder(null, if (paused) "재개" else "일시정지", command(2, if (paused) RESUME else PAUSE)).build())
             .addAction(Notification.Action.Builder(null, "중지", command(3, STOP)).build()).build()
     }
-    private fun updateNotice() { getSystemService(NotificationManager::class.java).notify(NOTICE, notification()) }
+    private fun updateNotice() {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        getSystemService(NotificationManager::class.java).notify(NOTICE, notification())
+    }
     override fun onDestroy() {
         handler.removeCallbacks(tickTask)
         releaseBrowser()

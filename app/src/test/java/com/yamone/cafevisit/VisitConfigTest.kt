@@ -13,7 +13,11 @@ class VisitConfigTest {
         assertTrue(values.contains(1860)); assertTrue(values.contains(2100))
     }
     @Test fun fixedRange() { assertEquals(1901, VisitConfig("https://cafe.naver.com/a", 1901, 1901).chooseDelaySeconds()) }
-    @Test fun secondsInput() { assertEquals(1925, VisitConfig.fromInputs("cafe.naver.com/a", "32", "25", "35", "0").minSeconds) }
+    @Test fun secondsInput() {
+        val config = VisitConfig.fromInputs("cafe.naver.com/a", "32", "25", "35", "0")
+        assertEquals(32 * 60 + 25, config.minSeconds)
+        assertEquals(35 * 60, config.maxSeconds)
+    }
     @Test fun preservesEscaping() { assertEquals("https://cafe.naver.com/a?q=x%2Fy", VisitConfig.normalizeCafeUrl("https://cafe.naver.com/a?q=x%2Fy#top")) }
     @Test fun upgradesHttp() { assertEquals("https://cafe.naver.com/a", VisitConfig.normalizeCafeUrl("http://cafe.naver.com/a")) }
     @Test fun trustedNavigation() { assertTrue(VisitConfig.isNaverHttps(BrowserUrl.LOGIN)); assertFalse(VisitConfig.isNaverHttps("https://naver.com.evil.test/a")) }
