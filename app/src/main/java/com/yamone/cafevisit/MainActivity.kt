@@ -20,7 +20,7 @@ import android.view.inputmethod.InputMethodManager
 import android.webkit.*
 import android.widget.*
 
-/** Small native UI, no tracking SDKs, no server, no account or password storage. */
+/** Native, local-only interface. Reading and automatic loading are independent. */
 class MainActivity : Activity() {
     private val ui = Handler(Looper.getMainLooper())
     private val pulse = object : Runnable { override fun run() { update(); ui.postDelayed(this, 1000) } }
@@ -94,7 +94,6 @@ class MainActivity : Activity() {
         select(saved?.getInt("tab", 0) ?: 0)
         if (Build.VERSION.SDK_INT >= 33) onBackInvokedDispatcher.registerOnBackInvokedCallback(0) { back() }
     }
-
     private fun buildBrowser(saved: Bundle?): View {
         val panel = column()
         val bar = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, dp(12), dp(8)) }
@@ -125,7 +124,6 @@ class MainActivity : Activity() {
         panel.addView(tools)
         return panel
     }
-
     private fun installBrowser(saved: Bundle?) {
         browser = Browser.create(this)
         browserHost.addView(browser, FrameLayout.LayoutParams(-1, -1))
@@ -165,14 +163,11 @@ class MainActivity : Activity() {
             }
         }
         val restored = saved?.getBundle("web")?.let { browser.restoreState(it) } != null
-        if (!restored) {
-            val last = p.getString("last_url", Browser.HOME).orEmpty()
-            restoringUrl = if (VisitConfig.isNaverHttps(last)) last else Browser.HOME
-            restoreScroll = p.getInt("scroll", 0)
-            browser.loadUrl(restoringUrl!!)
-        }
+        val last = p.getString("last_url", Browser.HOME).orEmpty()
+        restoringUrl = if (VisitConfig.isNaverHttps(last)) last else Browser.HOME
+        restoreScroll = saved?.getInt("scroll", p.getInt("scroll", 0)) ?: p.getInt("scroll", 0)
+        if (!restored) browser.loadUrl(restoringUrl!!)
     }
-
     private fun buildAutomation(): View {
         val content = column().apply { setPadding(dp(18), dp(10), dp(18), dp(20)) }
         content.addView(text("자동 새로고침", 25, bold = true))
@@ -202,8 +197,7 @@ class MainActivity : Activity() {
         val target = card(content, "새로고침할 카페")
         target.addView(text("자동 실행은 이 주소만 불러옵니다.", 12, muted), space(4, 10))
         cafe = input("https://cafe.naver.com/카페이름").apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-            setText(p.getString("cafe", ""))
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI; setText(p.getString("cafe", ""))
         }
         target.addView(cafe, LinearLayout.LayoutParams(-1, dp(50)))
         target.addView(button("현재 카페 주소 가져오기") {
@@ -227,7 +221,7 @@ class MainActivity : Activity() {
         timeRow.addView(hi.first, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(8) })
         timing.addView(timeRow, space(12, 10))
         timing.addView(text("31분~24시간 · 같은 값은 고정 간격\n직접 읽거나 새로고침해도 자동 일정은 바뀌지 않습니다.", 12, muted))
-        timing.addView(button("설정 저장") { if (saveConfig()) toast("설정을 저장했습니다.") }, space(12, 0))
+        timing.addView(button("설정 저장") { if (saveConfig()) { toast("설정을 저장했습니다."); update() } }, space(12, 0))
         val permissionCard = card(content, "백그라운드 실행 준비")
         permissions = text("", 12, muted)
         permissionCard.addView(permissions, space(8, 10))
@@ -250,7 +244,6 @@ class MainActivity : Activity() {
         content.addView(text("개인용 v0.4.0 · 외부 앱을 열지 않습니다.\n절전·강제 중지·네트워크 상태에 따라 실행이 지연될 수 있습니다. 로그인은 네이버 화면에서 직접 진행하세요.", 12, muted), space(18, 4))
         return ScrollView(this).apply { isFillViewport = true; addView(content) }
     }
-
     private fun buildLogs(): View {
         val content = column().apply { setPadding(dp(18), dp(10), dp(18), dp(20)) }
         content.addView(text("실행 기록", 25, bold = true))
@@ -270,14 +263,15 @@ class MainActivity : Activity() {
         logList = column(); content.addView(logList, space(14, 0))
         return ScrollView(this).apply { addView(content) }
     }
-
     private fun update() {
-        if (!::state.isInitialized) return
+        if (!::state.isInitialized || !::logList.isInitialized) return
         val running = p.getBoolean("running", false); val paused = p.getBoolean("paused", false)
         stateBadge.text = if (!running) "대기" else if (paused) "일시정지" else "실행 중"
         state.text = if (!running) "시작할 준비가 됐어요" else if (paused) "잠시 쉬는 중" else "다음 자동 새로고침까지"
         val left = if (paused) p.getLong("remaining", 0) else p.getLong("next_elapsed", 0) - SystemClock.elapsedRealtime()
-        count.text = if (running) Store.duration((left.coerceAtLeast(0) + 999) / 1000) else "31:00—35:00"
+        count.text = if (running) Store.duration((left.coerceAtLeast(0) + 999) / 1000)
+            else "${Store.duration(p.getInt("min", 1860).toLong())}—${Store.duration(p.getInt("max", 2100).toLong())}"
+        count.textSize = if (!running && p.getInt("max", 2100) >= 3600) 25f else 36f
         next.text = if (!running) "첫 실행은 바로 접속합니다." else if (paused) "재개하면 남은 시간부터 계속합니다." else "예정 ${Store.clock(p.getLong("next_wall", 0))}"
         result.text = p.getString("result", "읽는 화면과 별도로 동작합니다.")
         metrics.text = "시도 ${p.getInt("attempts", 0)}    ·    로드 ${p.getInt("completed", 0)}    ·    오류 ${p.getInt("errors", 0)}"
@@ -336,25 +330,30 @@ class MainActivity : Activity() {
         val url = browser.url ?: return
         if (VisitConfig.isNaverHttps(url) && Uri.parse(url).host != "nid.naver.com") p.edit().putString("last_url", url).apply()
     }
-    override fun onResume() { super.onResume(); if (::browser.isInitialized) browser.onResume(); ui.removeCallbacks(pulse); ui.post(pulse) }
+    override fun onResume() {
+        super.onResume()
+        if (::browser.isInitialized) browser.onResume()
+        ui.removeCallbacks(pulse); ui.post(pulse)
+        // User explicitly reopened the app. Restore an existing session without resetting its deadline.
+        if (p.getBoolean("running", false)) command(RefreshService.RESTORE)
+    }
     override fun onPause() {
         ui.removeCallbacks(pulse)
         if (::browser.isInitialized) {
             rememberPage(); p.edit().putInt("scroll", browser.scrollY).apply(); browser.onPause()
             CookieManager.getInstance().flush()
-            // Never call pauseTimers(): it would stop the service's other WebView too.
+            // Do not pause global WebView timers: the background browser shares the process.
         }
         super.onPause()
     }
     override fun onSaveInstanceState(out: Bundle) {
-        val web = Bundle(); browser.saveState(web); out.putBundle("web", web); out.putInt("tab", selected)
+        val web = Bundle(); browser.saveState(web); out.putBundle("web", web); out.putInt("tab", selected); out.putInt("scroll", browser.scrollY)
         super.onSaveInstanceState(out)
     }
     private fun back() { if (selected != 0) select(0) else if (browser.canGoBack()) browser.goBack() else moveTaskToBack(true) }
     @Deprecated("Legacy Android back callback")
     override fun onBackPressed() { back() }
     override fun onDestroy() { ui.removeCallbacksAndMessages(null); if (::browser.isInitialized) { browserHost.removeView(browser); browser.destroy() }; super.onDestroy() }
-
     private fun column() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
     private fun row() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
     private fun text(value: String, sp: Int, color: Int = ink, bold: Boolean = false) = TextView(this).apply {
@@ -371,7 +370,7 @@ class MainActivity : Activity() {
     private fun input(hintText: String) = EditText(this).apply {
         hint = hintText; textSize = 14f; setTextColor(ink); setHintTextColor(muted); setSingleLine(true)
         setPadding(dp(12), dp(10), dp(12), dp(10)); background = shape(getColor(R.color.bg), 10).apply { setStroke(dp(1), getColor(R.color.line)) }
-        selectAllOnFocus = true
+        setSelectAllOnFocus(true)
     }
     private fun space(top: Int, bottom: Int) = LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(top), 0, dp(bottom)) }
     private fun card(parent: LinearLayout, title: String): LinearLayout {
