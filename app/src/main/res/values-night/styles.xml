@@ -3,13 +3,13 @@
     <color name="ink">#E4EFEB</color><color name="muted">#A0B7AF</color>
     <color name="line">#31463F</color><color name="accent">#81DEBC</color>
     <color name="soft">#203E34</color><color name="danger">#FFAAAA</color>
-    <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
+    <style name="BaseAppTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">@color/accent</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowLightNavigationBar">false</item>
         <item name="android:windowBackground">@color/bg</item>
         <item name="android:statusBarColor">@color/bg</item>
         <item name="android:navigationBarColor">@color/surface</item>
     </style>
+    <style name="AppTheme" parent="BaseAppTheme" />
 </resources>
